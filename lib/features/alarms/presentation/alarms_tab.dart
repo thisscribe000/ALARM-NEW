@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../../../services/alarm_runtime.dart';
 import '../data/alarm_store.dart';
 import '../domain/alarm.dart';
 import 'alarm_editor.dart';
+import 'alarm_ring.dart';
 
 class AlarmsTab extends StatefulWidget {
   const AlarmsTab({super.key});
@@ -86,12 +88,36 @@ class _AlarmsTabState extends State<AlarmsTab> {
     await _persist();
   }
 
+  void _testRing(Alarm alarm) {
+    AlarmRuntime.instance.startRinging(alarm);
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => AlarmRingScreen(alarm: alarm)),
+    );
+  }
+
+  void _testRingQuick() {
+    final now = TimeOfDay.now();
+    final alarm = Alarm(
+      id: 'test_${DateTime.now().microsecondsSinceEpoch}',
+      hour: now.hour,
+      minute: now.minute,
+      label: 'Test Ring',
+      enabled: true,
+    );
+    _testRing(alarm);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Alarm'),
         actions: [
+          IconButton(
+            tooltip: 'Test ring',
+            onPressed: _testRingQuick,
+            icon: const Icon(Icons.notifications_active),
+          ),
           IconButton(
             tooltip: 'Reload',
             onPressed: _load,
@@ -102,11 +128,12 @@ class _AlarmsTabState extends State<AlarmsTab> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _alarms.isEmpty
-              ? _EmptyState(onAdd: _addAlarm)
+              ? _EmptyState(onAdd: _addAlarm, onTestRing: _testRingQuick)
               : ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 110),
                   itemCount: _alarms.length,
-                  separatorBuilder: (context, index) => const SizedBox(height: 10),
+                  separatorBuilder: (context, index) =>
+                      const SizedBox(height: 10),
                   itemBuilder: (context, i) {
                     final alarm = _alarms[i];
                     return Dismissible(
@@ -127,7 +154,9 @@ class _AlarmsTabState extends State<AlarmsTab> {
                               builder: (_) => AlertDialog(
                                 title: const Text('Delete alarm?'),
                                 content: Text(
-                                    'Delete "${alarm.label.isEmpty ? 'Alarm' : alarm.label}" at ${alarm.timeText(use24h: true)}?'),
+                                  'Delete "${alarm.label.isEmpty ? 'Alarm' : alarm.label}" '
+                                  'at ${alarm.timeText(use24h: true)}?',
+                                ),
                                 actions: [
                                   TextButton(
                                     onPressed: () =>
@@ -146,27 +175,45 @@ class _AlarmsTabState extends State<AlarmsTab> {
                       },
                       onDismissed: (_) => _deleteAlarm(alarm),
                       child: Card(
-                        child: ListTile(
-                          onTap: () => _editAlarm(alarm),
-                          leading: Icon(
-                            alarm.enabled
-                                ? Icons.alarm_on
-                                : Icons.alarm_off,
-                          ),
-                          title: Text(
-                            alarm.timeText(use24h: true),
-                            style: const TextStyle(
-                              fontSize: 28,
-                              fontWeight: FontWeight.w600,
+                        child: Column(
+                          children: [
+                            ListTile(
+                              onTap: () => _editAlarm(alarm),
+                              leading: Icon(
+                                alarm.enabled
+                                    ? Icons.alarm_on
+                                    : Icons.alarm_off,
+                              ),
+                              title: Text(
+                                alarm.timeText(use24h: true),
+                                style: const TextStyle(
+                                  fontSize: 28,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              subtitle: Text(
+                                alarm.label.isEmpty ? 'Alarm' : alarm.label,
+                              ),
+                              trailing: Switch(
+                                value: alarm.enabled,
+                                onChanged: (v) => _toggle(alarm, v),
+                              ),
                             ),
-                          ),
-                          subtitle: Text(
-                            alarm.label.isEmpty ? 'Alarm' : alarm.label,
-                          ),
-                          trailing: Switch(
-                            value: alarm.enabled,
-                            onChanged: (v) => _toggle(alarm, v),
-                          ),
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed: () => _testRing(alarm),
+                                      icon: const Icon(Icons.notifications),
+                                      label: const Text('Test Ring'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     );
@@ -183,8 +230,9 @@ class _AlarmsTabState extends State<AlarmsTab> {
 
 class _EmptyState extends StatelessWidget {
   final VoidCallback onAdd;
+  final VoidCallback onTestRing;
 
-  const _EmptyState({required this.onAdd});
+  const _EmptyState({required this.onAdd, required this.onTestRing});
 
   @override
   Widget build(BuildContext context) {
@@ -202,7 +250,8 @@ class _EmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             const Text(
-              'Tap Add to create your first alarm.',
+              'Tap Add to create your first alarm.\n'
+              'Or test the ring screen now.',
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 16),
@@ -210,6 +259,12 @@ class _EmptyState extends StatelessWidget {
               onPressed: onAdd,
               icon: const Icon(Icons.add_alarm),
               label: const Text('Add Alarm'),
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: onTestRing,
+              icon: const Icon(Icons.notifications_active),
+              label: const Text('Test Ring'),
             ),
           ],
         ),
