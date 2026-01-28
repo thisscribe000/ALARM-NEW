@@ -91,7 +91,7 @@ class _AlarmsTabState extends State<AlarmsTab> {
   void _testRing(Alarm alarm) {
     AlarmRuntime.instance.startRinging(alarm);
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => AlarmRingScreen(alarm: alarm)),
+      MaterialPageRoute(builder: (_) => AlarmRingScreen(alarm: alarm, maxSnoozes: 5)),
     );
   }
 

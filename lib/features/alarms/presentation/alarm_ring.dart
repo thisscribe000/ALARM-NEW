@@ -8,7 +8,16 @@ import '../domain/alarm.dart';
 class AlarmRingScreen extends StatefulWidget {
   final Alarm alarm;
 
-  const AlarmRingScreen({super.key, required this.alarm});
+  /// Snooze rule:
+  /// - 3 or 5 for limited snoozes
+  /// - null for unlimited
+  final int? maxSnoozes;
+
+  const AlarmRingScreen({
+    super.key,
+    required this.alarm,
+    this.maxSnoozes,
+  });
 
   @override
   State<AlarmRingScreen> createState() => _AlarmRingScreenState();
@@ -23,7 +32,6 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> {
   void initState() {
     super.initState();
 
-    // Countdown display for auto-stop
     _countdown = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       setState(() {
@@ -31,7 +39,6 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> {
       });
     });
 
-    // If runtime stops (auto-stop or dismiss elsewhere), close this screen.
     _sub = AlarmRuntime.instance.ringingStream.listen((alarm) {
       if (alarm == null && mounted) {
         Navigator.of(context).maybePop();
@@ -50,18 +57,103 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> {
     AlarmRuntime.instance.stopRinging(reason: 'dismissed');
   }
 
-  void _snoozeDev() {
-    // Snooze system comes next step; for now just stop ringing.
-    AlarmRuntime.instance.stopRinging(reason: 'snooze_placeholder');
+  Future<void> _showSnoozePicker() async {
+  final runtime = AlarmRuntime.instance;
+  final max = widget.maxSnoozes;
+
+  final isBlocked = max != null && runtime.snoozeCount >= max;
+
+  if (isBlocked) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Snooze coming next step')),
+      SnackBar(
+        content: Text('Snooze limit reached ($max). Dismiss to stop alarm.'),
+      ),
     );
+    return;
   }
+
+  final picked = await showModalBottomSheet<int>(
+    context: context,
+    showDragHandle: true,
+    builder: (context) {
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 22),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Snooze',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                AlarmRuntime.devModeFastSnooze
+                    ? 'DEV mode: 5 min = 5 sec'
+                    : 'Pick how long to snooze',
+              ),
+              const SizedBox(height: 14),
+              _SnoozeOption(minutes: 5),
+              _SnoozeOption(minutes: 10),
+              _SnoozeOption(minutes: 15),
+              _SnoozeOption(minutes: 30),
+              const SizedBox(height: 10),
+              Text(
+                max == null
+                    ? 'Snoozes: unlimited'
+                    : 'Snoozes: ${runtime.snoozeCount} / $max',
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+
+  if (!mounted) return;
+  if (picked == null) return;
+
+  final ok =
+      AlarmRuntime.instance.snooze(minutes: picked, maxSnoozes: max);
+
+  if (!mounted) return;
+
+  if (!ok) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          max == null
+              ? 'Could not snooze.'
+              : 'Snooze limit reached ($max).',
+        ),
+      ),
+    );
+    return;
+  }
+
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(
+        AlarmRuntime.devModeFastSnooze
+            ? 'Snoozed for $picked sec (dev)'
+            : 'Snoozed for $picked min',
+      ),
+    ),
+  );
+}
 
   @override
   Widget build(BuildContext context) {
     final alarm = widget.alarm;
     final time = alarm.timeText(use24h: true);
+
+    final max = widget.maxSnoozes;
+    final snoozeCount = AlarmRuntime.instance.snoozeCount;
+    final blocked = max != null && snoozeCount >= max;
 
     return Scaffold(
       body: SafeArea(
@@ -101,13 +193,26 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> {
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(14),
-                  child: Row(
+                  child: Column(
                     children: [
-                      const Icon(Icons.timer),
-                      const SizedBox(width: 10),
-                      Expanded(
+                      Row(
+                        children: [
+                          const Icon(Icons.timer),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Auto-stop in $_secondsLeft s (dev)',
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Align(
+                        alignment: Alignment.centerLeft,
                         child: Text(
-                          'Auto-stop in $_secondsLeft s (dev)',
+                          max == null
+                              ? 'Snooze: $snoozeCount (unlimited)'
+                              : 'Snooze: $snoozeCount / $max',
                         ),
                       ),
                     ],
@@ -119,7 +224,7 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> {
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: _snoozeDev,
+                      onPressed: blocked ? null : _showSnoozePicker,
                       icon: const Icon(Icons.snooze),
                       label: const Text('Snooze'),
                       style: OutlinedButton.styleFrom(
@@ -144,6 +249,29 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _SnoozeOption extends StatelessWidget {
+  final int minutes;
+
+  const _SnoozeOption({required this.minutes});
+
+  @override
+  Widget build(BuildContext context) {
+    final subtitle = AlarmRuntime.devModeFastSnooze
+        ? '$minutes sec (dev)'
+        : '$minutes min';
+
+    return Card(
+      child: ListTile(
+        leading: const Icon(Icons.snooze),
+        title: Text('$minutes'),
+        subtitle: Text(subtitle),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () => Navigator.of(context).pop<int>(minutes),
       ),
     );
   }
