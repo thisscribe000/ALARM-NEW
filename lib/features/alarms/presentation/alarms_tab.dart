@@ -1,26 +1,218 @@
 import 'package:flutter/material.dart';
 
-class AlarmsTab extends StatelessWidget {
+import '../data/alarm_store.dart';
+import '../domain/alarm.dart';
+import 'alarm_editor.dart';
+
+class AlarmsTab extends StatefulWidget {
   const AlarmsTab({super.key});
+
+  @override
+  State<AlarmsTab> createState() => _AlarmsTabState();
+}
+
+class _AlarmsTabState extends State<AlarmsTab> {
+  final AlarmStore _store = AlarmStore();
+  bool _loading = true;
+  List<Alarm> _alarms = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    final loaded = await _store.load();
+    loaded.sort(_alarmSort);
+    setState(() {
+      _alarms = loaded;
+      _loading = false;
+    });
+  }
+
+  int _alarmSort(Alarm a, Alarm b) {
+    final at = a.hour * 60 + a.minute;
+    final bt = b.hour * 60 + b.minute;
+    return at.compareTo(bt);
+  }
+
+  Future<void> _persist() async {
+    final sorted = [..._alarms]..sort(_alarmSort);
+    setState(() => _alarms = sorted);
+    await _store.save(sorted);
+  }
+
+  Future<void> _addAlarm() async {
+    final created = await Navigator.of(context).push<Alarm>(
+      MaterialPageRoute(builder: (_) => const AlarmEditor()),
+    );
+
+    if (created == null) return;
+
+    setState(() {
+      _alarms = [..._alarms, created];
+    });
+    await _persist();
+  }
+
+  Future<void> _editAlarm(Alarm alarm) async {
+    final updated = await Navigator.of(context).push<Alarm>(
+      MaterialPageRoute(builder: (_) => AlarmEditor(initial: alarm)),
+    );
+
+    if (updated == null) return;
+
+    setState(() {
+      _alarms = _alarms.map((a) => a.id == alarm.id ? updated : a).toList();
+    });
+    await _persist();
+  }
+
+  Future<void> _toggle(Alarm alarm, bool value) async {
+    setState(() {
+      _alarms = _alarms
+          .map((a) => a.id == alarm.id ? a.copyWith(enabled: value) : a)
+          .toList();
+    });
+    await _persist();
+  }
+
+  Future<void> _deleteAlarm(Alarm alarm) async {
+    setState(() {
+      _alarms = _alarms.where((a) => a.id != alarm.id).toList();
+    });
+    await _persist();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Alarm')),
-      body: const Center(
-        child: Text(
-          'Alarms tab\n(We build alarms next)',
-          textAlign: TextAlign.center,
-        ),
+      appBar: AppBar(
+        title: const Text('Alarm'),
+        actions: [
+          IconButton(
+            tooltip: 'Reload',
+            onPressed: _load,
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
       ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _alarms.isEmpty
+              ? _EmptyState(onAdd: _addAlarm)
+              : ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+                  itemCount: _alarms.length,
+                  separatorBuilder: (context, index) => const SizedBox(height: 10),
+                  itemBuilder: (context, i) {
+                    final alarm = _alarms[i];
+                    return Dismissible(
+                      key: ValueKey(alarm.id),
+                      direction: DismissDirection.endToStart,
+                      background: Container(
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.only(right: 16),
+                        color: Theme.of(context).colorScheme.errorContainer,
+                        child: Icon(
+                          Icons.delete,
+                          color: Theme.of(context).colorScheme.onErrorContainer,
+                        ),
+                      ),
+                      confirmDismiss: (_) async {
+                        return await showDialog<bool>(
+                              context: context,
+                              builder: (_) => AlertDialog(
+                                title: const Text('Delete alarm?'),
+                                content: Text(
+                                    'Delete "${alarm.label.isEmpty ? 'Alarm' : alarm.label}" at ${alarm.timeText(use24h: true)}?'),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () =>
+                                        Navigator.pop(context, false),
+                                    child: const Text('Cancel'),
+                                  ),
+                                  TextButton(
+                                    onPressed: () =>
+                                        Navigator.pop(context, true),
+                                    child: const Text('Delete'),
+                                  ),
+                                ],
+                              ),
+                            ) ??
+                            false;
+                      },
+                      onDismissed: (_) => _deleteAlarm(alarm),
+                      child: Card(
+                        child: ListTile(
+                          onTap: () => _editAlarm(alarm),
+                          leading: Icon(
+                            alarm.enabled
+                                ? Icons.alarm_on
+                                : Icons.alarm_off,
+                          ),
+                          title: Text(
+                            alarm.timeText(use24h: true),
+                            style: const TextStyle(
+                              fontSize: 28,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          subtitle: Text(
+                            alarm.label.isEmpty ? 'Alarm' : alarm.label,
+                          ),
+                          trailing: Switch(
+                            value: alarm.enabled,
+                            onChanged: (v) => _toggle(alarm, v),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Add Alarm (coming next step)')),
-          );
-        },
+        onPressed: _addAlarm,
         icon: const Icon(Icons.add_alarm),
         label: const Text('Add'),
+      ),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  final VoidCallback onAdd;
+
+  const _EmptyState({required this.onAdd});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.alarm, size: 56),
+            const SizedBox(height: 12),
+            const Text(
+              'No alarms yet',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Tap Add to create your first alarm.',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: onAdd,
+              icon: const Icon(Icons.add_alarm),
+              label: const Text('Add Alarm'),
+            ),
+          ],
+        ),
       ),
     );
   }
