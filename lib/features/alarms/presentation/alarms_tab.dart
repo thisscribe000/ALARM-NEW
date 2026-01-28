@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../../services/alarm_runtime.dart';
+import '../../games/tictactoe/tictactoe_score.dart';
+import '../../games/tictactoe/tictactoe_score_store.dart';
+import '../../games/tictactoe/tictactoe_score_widget.dart';
 import '../data/alarm_settings_store.dart';
 import '../data/alarm_store.dart';
 import '../domain/alarm.dart';
@@ -19,10 +22,12 @@ class AlarmsTab extends StatefulWidget {
 class _AlarmsTabState extends State<AlarmsTab> {
   final AlarmStore _store = AlarmStore();
   final AlarmSettingsStore _settingsStore = AlarmSettingsStore();
+  final TicTacToeScoreStore _scoreStore = TicTacToeScoreStore();
 
   bool _loading = true;
   List<Alarm> _alarms = [];
   AlarmSettings _settings = AlarmSettings.defaultValue;
+  TicTacToeScore _score = TicTacToeScore.empty;
 
   @override
   void initState() {
@@ -32,15 +37,18 @@ class _AlarmsTabState extends State<AlarmsTab> {
 
   Future<void> _loadAll() async {
     setState(() => _loading = true);
-    final loaded = await _store.load();
+
+    final loadedAlarms = await _store.load();
     final settings = await _settingsStore.load();
+    final score = await _scoreStore.load();
 
-    loaded.sort(_alarmSort);
+    loadedAlarms.sort(_alarmSort);
+
     if (!mounted) return;
-
     setState(() {
-      _alarms = loaded;
+      _alarms = loadedAlarms;
       _settings = settings;
+      _score = score;
       _loading = false;
     });
   }
@@ -104,19 +112,25 @@ class _AlarmsTabState extends State<AlarmsTab> {
       MaterialPageRoute(builder: (_) => const AlarmSettingsScreen()),
     );
 
-    // Reload settings after returning
+    // Reload settings + score after returning
     final settings = await _settingsStore.load();
+    final score = await _scoreStore.load();
+
     if (!mounted) return;
-    setState(() => _settings = settings);
+    setState(() {
+      _settings = settings;
+      _score = score;
+    });
   }
 
-  void _testRing(Alarm alarm) {
+  void _openRing(Alarm alarm) {
     AlarmRuntime.instance.startRinging(alarm);
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => AlarmRingScreen(
           alarm: alarm,
           maxSnoozes: _settings.snoozeLimit,
+          dismissMethod: _settings.dismissMethod,
         ),
       ),
     );
@@ -131,7 +145,7 @@ class _AlarmsTabState extends State<AlarmsTab> {
       label: 'Test Ring',
       enabled: true,
     );
-    _testRing(alarm);
+    _openRing(alarm);
   }
 
   @override
@@ -169,13 +183,21 @@ class _AlarmsTabState extends State<AlarmsTab> {
               children: [
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
-                  child: Card(
-                    child: ListTile(
-                      leading: const Icon(Icons.tune),
-                      title: const Text('Current settings'),
-                      subtitle: Text('Snooze limit: $snoozeText • Dismiss: $dismissText'),
-                      onTap: _openSettings,
-                    ),
+                  child: Column(
+                    children: [
+                      Card(
+                        child: ListTile(
+                          leading: const Icon(Icons.tune),
+                          title: const Text('Current settings'),
+                          subtitle: Text(
+                            'Snooze limit: $snoozeText • Dismiss: $dismissText',
+                          ),
+                          onTap: _openSettings,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TicTacToeScoreWidget(score: _score),
+                    ],
                   ),
                 ),
                 Expanded(
@@ -247,7 +269,9 @@ class _AlarmsTabState extends State<AlarmsTab> {
                                         ),
                                       ),
                                       subtitle: Text(
-                                        alarm.label.isEmpty ? 'Alarm' : alarm.label,
+                                        alarm.label.isEmpty
+                                            ? 'Alarm'
+                                            : alarm.label,
                                       ),
                                       trailing: Switch(
                                         value: alarm.enabled,
@@ -261,7 +285,7 @@ class _AlarmsTabState extends State<AlarmsTab> {
                                         children: [
                                           Expanded(
                                             child: OutlinedButton.icon(
-                                              onPressed: () => _testRing(alarm),
+                                              onPressed: () => _openRing(alarm),
                                               icon: const Icon(Icons.notifications),
                                               label: const Text('Test Ring'),
                                             ),
@@ -309,8 +333,7 @@ class _EmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             const Text(
-              'Tap Add to create your first alarm.\n'
-              'Or test the ring screen now.',
+              'Tap Add to create your first alarm.\nOr test the ring screen now.',
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 16),

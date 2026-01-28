@@ -3,20 +3,24 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../services/alarm_runtime.dart';
+import '../../games/tictactoe/tictactoe_game_screen.dart';
 import '../domain/alarm.dart';
+import '../domain/alarm_settings.dart';
 
 class AlarmRingScreen extends StatefulWidget {
   final Alarm alarm;
 
-  /// Snooze rule:
-  /// - 3 or 5 for limited snoozes
-  /// - null for unlimited
+  /// Snooze limit: 3, 5, or null (unlimited)
   final int? maxSnoozes;
+
+  /// Dismiss behavior
+  final DismissMethod dismissMethod;
 
   const AlarmRingScreen({
     super.key,
     required this.alarm,
-    this.maxSnoozes,
+    required this.maxSnoozes,
+    required this.dismissMethod,
   });
 
   @override
@@ -53,98 +57,112 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> {
     super.dispose();
   }
 
-  void _dismiss() {
-    AlarmRuntime.instance.stopRinging(reason: 'dismissed');
+  Future<void> _dismiss() async {
+    if (widget.dismissMethod == DismissMethod.normal) {
+      AlarmRuntime.instance.stopRinging(reason: 'dismissed');
+      return;
+    }
+
+    // TicTacToe gate
+    final result = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => const TicTacToeGameScreen(dismissOnFinish: true),
+      ),
+    );
+
+    if (!mounted) return;
+
+    // Any outcome dismisses
+    if (result != null) {
+      AlarmRuntime.instance.stopRinging(reason: 'dismissed_tictactoe');
+    }
   }
 
   Future<void> _showSnoozePicker() async {
-  final runtime = AlarmRuntime.instance;
-  final max = widget.maxSnoozes;
+    final runtime = AlarmRuntime.instance;
+    final max = widget.maxSnoozes;
 
-  final isBlocked = max != null && runtime.snoozeCount >= max;
+    final isBlocked = max != null && runtime.snoozeCount >= max;
 
-  if (isBlocked) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Snooze limit reached ($max). Dismiss to stop alarm.'),
-      ),
+    if (isBlocked) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Snooze limit reached ($max). Dismiss to stop alarm.'),
+        ),
+      );
+      return;
+    }
+
+    final picked = await showModalBottomSheet<int>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 22),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Snooze',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  AlarmRuntime.devModeFastSnooze
+                      ? 'DEV mode: 5 min = 5 sec'
+                      : 'Pick how long to snooze',
+                ),
+                const SizedBox(height: 14),
+                _SnoozeOption(minutes: 5),
+                _SnoozeOption(minutes: 10),
+                _SnoozeOption(minutes: 15),
+                _SnoozeOption(minutes: 30),
+                const SizedBox(height: 10),
+                Text(
+                  max == null
+                      ? 'Snoozes: unlimited'
+                      : 'Snoozes: ${runtime.snoozeCount} / $max',
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
-    return;
-  }
 
-  final picked = await showModalBottomSheet<int>(
-    context: context,
-    showDragHandle: true,
-    builder: (context) {
-      return SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 22),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Snooze',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                AlarmRuntime.devModeFastSnooze
-                    ? 'DEV mode: 5 min = 5 sec'
-                    : 'Pick how long to snooze',
-              ),
-              const SizedBox(height: 14),
-              _SnoozeOption(minutes: 5),
-              _SnoozeOption(minutes: 10),
-              _SnoozeOption(minutes: 15),
-              _SnoozeOption(minutes: 30),
-              const SizedBox(height: 10),
-              Text(
-                max == null
-                    ? 'Snoozes: unlimited'
-                    : 'Snoozes: ${runtime.snoozeCount} / $max',
-              ),
-            ],
+    if (!mounted) return;
+    if (picked == null) return;
+
+    final ok = AlarmRuntime.instance.snooze(minutes: picked, maxSnoozes: max);
+
+    if (!mounted) return;
+
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            max == null ? 'Could not snooze.' : 'Snooze limit reached ($max).',
           ),
         ),
       );
-    },
-  );
+      return;
+    }
 
-  if (!mounted) return;
-  if (picked == null) return;
-
-  final ok =
-      AlarmRuntime.instance.snooze(minutes: picked, maxSnoozes: max);
-
-  if (!mounted) return;
-
-  if (!ok) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          max == null
-              ? 'Could not snooze.'
-              : 'Snooze limit reached ($max).',
+          AlarmRuntime.devModeFastSnooze
+              ? 'Snoozed for $picked sec (dev)'
+              : 'Snoozed for $picked min',
         ),
       ),
     );
-    return;
   }
-
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text(
-        AlarmRuntime.devModeFastSnooze
-            ? 'Snoozed for $picked sec (dev)'
-            : 'Snoozed for $picked min',
-      ),
-    ),
-  );
-}
 
   @override
   Widget build(BuildContext context) {
@@ -154,6 +172,10 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> {
     final max = widget.maxSnoozes;
     final snoozeCount = AlarmRuntime.instance.snoozeCount;
     final blocked = max != null && snoozeCount >= max;
+
+    final dismissLabel = widget.dismissMethod == DismissMethod.normal
+        ? 'Dismiss'
+        : 'Play to dismiss';
 
     return Scaffold(
       body: SafeArea(
@@ -215,6 +237,15 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> {
                               : 'Snooze: $snoozeCount / $max',
                         ),
                       ),
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          widget.dismissMethod == DismissMethod.normal
+                              ? 'Dismiss: Normal'
+                              : 'Dismiss: Tic-Tac-Toe',
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -237,7 +268,7 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> {
                     child: FilledButton.icon(
                       onPressed: _dismiss,
                       icon: const Icon(Icons.check),
-                      label: const Text('Dismiss'),
+                      label: Text(dismissLabel),
                       style: FilledButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                       ),
@@ -261,9 +292,7 @@ class _SnoozeOption extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final subtitle = AlarmRuntime.devModeFastSnooze
-        ? '$minutes sec (dev)'
-        : '$minutes min';
+    final subtitle = AlarmRuntime.devModeFastSnooze ? '$minutes sec (dev)' : '$minutes min';
 
     return Card(
       child: ListTile(
