@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../shared/theme/app_theme.dart';
 import '../features/alarms/presentation/alarms_tab.dart';
 import '../features/world_clock/world_clock_tab.dart';
-import '../features/stopwatch/stopwatch_tab.dart';
+import '../features/stopwatch/presentation/stopwatch_tab.dart';
 import '../features/timer/timer_tab.dart';
 
 class AlarmNewApp extends StatelessWidget {
