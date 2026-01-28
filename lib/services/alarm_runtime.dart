@@ -52,35 +52,33 @@ class AlarmRuntime {
   /// - true if snooze scheduled
   /// - false if blocked (limit reached or no current alarm)
   bool snooze({
-    required int minutes,
-    int? maxSnoozes,
-  }) {
-    final currentAlarm = _current;
-    if (currentAlarm == null) return false;
+  required int minutes,
+  int? maxSnoozes,
+}) {
+  final currentAlarm = _current;
+  if (currentAlarm == null) return false;
 
-    if (maxSnoozes != null && _snoozeCount >= maxSnoozes) {
-      return false;
-    }
-
-    _snoozeCount++;
-
-    // Stop current ringing UI (caller will pop)
-    _autoStopTimer?.cancel();
-    _autoStopTimer = null;
-
-    _current = null;
-    _ringingController.add(null);
-
-    // Schedule re-ring
-    _snoozeTimer?.cancel();
-
-    final delay = _devDelayForMinutes(minutes);
-    _snoozeTimer = Timer(delay, () {
-      startRinging(currentAlarm);
-    });
-
-    return true;
+  if (maxSnoozes != null && _snoozeCount >= maxSnoozes) {
+    return false;
   }
+
+  _snoozeCount++;
+
+  _autoStopTimer?.cancel();
+  _autoStopTimer = null;
+
+  _current = null;
+  _ringingController.add(null);
+
+  _snoozeTimer?.cancel();
+
+  final delay = _devDelayForMinutes(minutes);
+  _snoozeTimer = Timer(delay, () {
+    startRinging(currentAlarm);
+  });
+
+  return true;
+}
 
   Duration _devDelayForMinutes(int minutes) {
     if (!devModeFastSnooze) return Duration(minutes: minutes);
