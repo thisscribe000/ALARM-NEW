@@ -4,7 +4,7 @@ import '../shared/theme/app_theme.dart';
 import '../features/alarms/presentation/alarms_tab.dart';
 import '../features/world_clock/world_clock_tab.dart';
 import '../features/stopwatch/presentation/stopwatch_tab.dart';
-import '../features/timer/timer_tab.dart';
+import '../features/timer/presentation/timer_tab.dart';
 
 class AlarmNewApp extends StatelessWidget {
   const AlarmNewApp({super.key});
